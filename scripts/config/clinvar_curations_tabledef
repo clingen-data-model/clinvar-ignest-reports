@@ -1,0 +1,83 @@
+{
+  "schema": {
+    "fields": [
+      {
+        "name": "vcv_id",
+        "type": "STRING"
+      },
+      {
+        "name": "variation_name",
+        "type": "STRING"
+      },
+      {
+        "name": "scv_id",
+        "type": "STRING"
+      },
+      {
+        "name": "submitter_name",
+        "type": "STRING"
+      },
+      {
+        "name": "interpretation",
+        "type": "STRING"
+      },
+      {
+        "name": "action",
+        "type": "STRING"
+      },
+      {
+        "name": "reason",
+        "type": "STRING"
+      },
+      {
+        "name": "notes",
+        "type": "STRING"
+      },
+      {
+        "name": "curation_date",
+        "type": "TIMESTAMP"
+      },
+      {
+        "name": "submitter_id",
+        "type": "STRING"
+      },
+      {
+        "name": "variation_id",
+        "type": "STRING"
+      },
+      {
+        "name": "curator_email",
+        "type": "STRING"
+      },
+      {
+        "name": "override_field",
+        "type": "STRING"
+      },
+      {
+        "name": "override_value",
+        "type": "STRING"
+      },
+      {
+        "name": "column_o",
+        "type": "STRING"
+      },
+      {
+        "name": "most_recent",
+        "type": "BOOLEAN"
+      },
+      {
+        "name": "retired",
+        "type": "BOOLEAN"
+      }
+    ]
+  },
+  "sourceFormat": "GOOGLE_SHEETS",
+  "sourceUris": [
+    https://docs.google.com/spreadsheets/d/1pzuWR409vSmoFX9inmoU6el6vjG0SniB1KrxWLeVpaA/edit#gid=0
+  ],
+  "autodetect": FALSE,
+  "googleSheetsOptions": {
+    "skipLeadingRows": 1,
+    "range": "'SCV Records'!A:Q"
+  }
+}

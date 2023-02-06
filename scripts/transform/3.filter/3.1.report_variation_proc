@@ -1,0 +1,114 @@
+-- report_variations (run when you want to update the variants of inteterest driven by the reporting tables for vceps, etc...)
+
+-- NOTE: This is only designed to append variations, it will not remove variations that SHOULD be
+-- removed based on a configuration change in the BQ tables for pre-existing reports.
+
+-- CREATE OR REPLACE TABLE `clingen-stage.clinvar_curator.report_variation`
+-- ( 
+--   report_id STRING,
+--   variation_id STRING,
+--   added DATETIME
+-- );
+
+CREATE OR REPLACE PROCEDURE `clingen-stage.clinvar_curator.report_variation_proc`()
+BEGIN
+
+  DECLARE now DATETIME;
+  SET now = CURRENT_DATETIME();
+
+  -- look at the latest schema_name to find any new report-variation associations
+  -- FIRST grab all new variations associated with any submitters associated with active report ids
+  INSERT `clingen-stage.clinvar_curator.report_variation`
+  (
+    report_id, variation_id, added
+  )
+  SELECT
+    r.id as report_id, 
+    scv.variation_id,
+    now as added
+  FROM `clingen-stage.clinvar_curator.report` r
+  JOIN `clingen-stage.clinvar_curator.report_submitter` rs 
+  ON 
+    rs.report_id = r.id
+  JOIN `clingen-stage.clinvar_curator.clinvar_scvs` scv 
+  ON 
+    scv.submitter_id = rs.submitter_id
+  WHERE 
+    r.active AND
+    NOT EXISTS 
+    (
+      SELECT rv.variation_id
+      FROM `clingen-stage.clinvar_curator.report_variation` rv
+      WHERE 
+        rv.report_id = r.id AND 
+        rv.variation_id = scv.variation_id
+    )
+  GROUP BY 
+    r.id, scv.variation_id;
+
+  -- NOTE! Add logic to add any non-configured genes that are associated with variants above, automatically.
+
+  -- SECOND, add all new variations associated with any genes associated with active report ids
+  INSERT `clingen-stage.clinvar_curator.report_variation`  
+  (
+    report_id, variation_id, added
+  )
+  SELECT 
+    r.id as report_id, 
+    vsg.variation_id,
+    now as added
+  FROM `clingen-stage.clinvar_curator.report` r
+  JOIN `clingen-stage.clinvar_curator.report_gene` rg 
+  ON 
+    rg.report_id = r.id
+  JOIN `clingen-stage.clinvar_curator.entrez_gene` cg 
+  ON 
+    UPPER(cg.symbol_from_authority) = UPPER(TRIM(rg.gene_symbol))
+  JOIN `clingen-stage.clinvar_curator.clinvar_single_gene_variations` vsg 
+  ON 
+    vsg.gene_id = cg.gene_id
+  WHERE
+    r.active AND 
+    NOT EXISTS 
+    (
+      SELECT 
+        rv.variation_id
+      FROM `clingen-stage.clinvar_curator.report_variation` rv
+      WHERE 
+        rv.report_id = r.id AND 
+        rv.variation_id = vsg.variation_id
+    )
+  GROUP BY 
+    r.id, vsg.variation_id;
+
+  -- THIRD, add all new variations associated directly with active report ids
+  INSERT `clingen-stage.clinvar_curator.report_variation`  
+  (
+    report_id, variation_id, added
+  )
+  SELECT 
+    r.id as report_id, 
+    cv.id as variation_id,
+    now as added
+  FROM `clingen-stage.clinvar_curator.report` r
+  JOIN `clingen-stage.clinvar_curator.report_variant_list` rvl 
+  ON 
+    rvl.report_id = r.id
+  JOIN `clingen-stage.clinvar_curator.clinvar_variations` cv 
+  ON 
+    cv.id = rvl.variation_id
+  WHERE
+    r.active AND 
+    NOT EXISTS 
+    (
+      SELECT 
+        rv.variation_id
+      FROM `clingen-stage.clinvar_curator.report_variation` rv
+      WHERE 
+        rv.report_id = r.id AND 
+        rv.variation_id = cv.id
+    )
+  GROUP BY 
+    r.id, cv.id;
+
+END;

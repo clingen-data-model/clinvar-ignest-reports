@@ -1,0 +1,135 @@
+-- add variant ids and names with the original release date and most_recent release date 
+-- - for all variants over time, if deleted, mark release it was first not shown (or deleted from)
+
+-- CREATE OR REPLACE TABLE `clingen-stage.clinvar_curator.clinvar_variations`
+-- ( 
+--   id STRING NOT NULL,
+--   name STRING,
+--   start_release_date DATE,
+--   end_release_date DATE,
+--   deleted_release_date DATE,
+--   deleted_count INT DEFAULT 0
+-- );
+
+-- housekeeping issuee!
+-- -- remove duplicate variation records by replacing variation view with a table from 2022_07_24 dataset
+-- -- which contains 107 duplicate variation records!
+-- DROP VIEW `clingen-stage.clinvar_2022_07_24_v1_6_46.variation`;
+-- CREATE OR REPLACE TABLE `clingen-stage.clinvar_2022_07_24_v1_6_46.variation`
+-- AS
+-- SELECT 
+--   datarepo_row_id,
+--   name,
+--   variation_type,
+--   allele_id,
+--   release_date,
+--   subclass_type,
+--   protein_change,
+--   content,
+--   id,
+--   descendant_ids,
+--   num_chromosomes,
+--   num_copies,
+--   child_ids
+-- FROM (
+--   SELECT 
+--     *, 
+--     ROW_NUMBER() OVER (PARTITION BY release_date, id) row_number
+--     FROM `datarepo-550c0177.clinvar_2022_07_24_v1_6_46.variation`
+-- )
+-- WHERE row_number = 1
+-- ;
+
+-- verify where the last update of this table was and only process releases beyond that
+-- select end_release_date from `clingen-stage.clinvar_curator.clinvar_variations` group by end_release_date order by 1 desc;
+
+CREATE OR REPLACE PROCEDURE `clingen-stage.clinvar_curator.clinvar_variations_proc`(start_with STRING)
+BEGIN
+
+  DECLARE schemas ARRAY<STRUCT<schema_name STRING, release_date DATE, next_release_date DATE>>;
+  call clinvar_curator.get_schemas(start_with, schemas);
+
+  FOR rec IN 
+  (
+    SELECT 
+      s.schema_name, 
+      s.release_date, 
+      s.next_release_date 
+    FROM UNNEST(schemas) as s
+  )
+  DO
+
+    -- deleted variations (where it exists in clinvar_variations (for deleted_release_date is null), but doesn't exist in current data set )
+    EXECUTE IMMEDIATE FORMAT("""
+      UPDATE `clingen-stage.clinvar_curator.clinvar_variations` cv
+      SET 
+        deleted_release_date = %T,
+        deleted_count = deleted_count + 1
+      WHERE 
+        cv.deleted_release_date is NULL AND
+        NOT EXISTS 
+        (
+          SELECT 
+            v.id 
+          FROM `clingen-stage.%s.variation` v
+          WHERE 
+            v.release_date = %T AND 
+            v.id = cv.id
+        )
+    """, rec.release_date, rec.schema_name, rec.release_date);
+
+    -- updated variations
+    EXECUTE IMMEDIATE FORMAT("""
+      UPDATE `clingen-stage.clinvar_curator.clinvar_variations` cv
+      SET 
+        name = v.name, 
+        end_release_date = v.release_date,
+        deleted_release_date = NULL
+      FROM `clingen-stage.%s.variation` v
+      WHERE 
+        v.release_date = %T AND 
+        v.id = cv.id
+    """, rec.schema_name, rec.release_date);
+
+    -- new variations
+    EXECUTE IMMEDIATE FORMAT("""
+      INSERT INTO `clingen-stage.clinvar_curator.clinvar_variations` 
+      (
+        id, name, start_release_date, end_release_date
+      )
+      SELECT 
+        v.id, 
+        v.name, 
+        v.release_date as start_release_date, 
+        v.release_date as end_release_date
+      FROM `clingen-stage.%s.variation` v
+      WHERE 
+        v.release_date = %T AND 
+        NOT EXISTS 
+        (
+          SELECT 
+            cv.id 
+          FROM `clingen-stage.clinvar_curator.clinvar_variations` cv
+          WHERE 
+            cv.id = v.id 
+        )
+    """, rec.schema_name, rec.release_date);
+
+  END FOR;       
+
+END;
+
+
+-- -- housekeeping... the clinvar_2019_06_01_v0.variation table can end up with multiple names for the same variation id
+-- --  to correct this we will simply pick the first one and delete the others before running the script below
+-- DELETE FROM `clingen-stage.clinvar_2019_06_01_v0.variation` v
+-- WHERE EXISTS (
+--   SELECT v2.release_date, v2.id, v2.first_name
+--   FROM (
+--     SELECT release_date, id, ARRAY_AGG(name)[OFFSET(0)] as first_name
+--     FROM `clingen-stage.clinvar_2019_06_01_v0.variation` 
+--     GROUP BY release_date, id
+--     HAVING count(name) > 1
+--   ) v2
+--   WHERE v2.release_date = v.release_date AND v2.id = v.id AND v2.first_name <> v.name
+-- );

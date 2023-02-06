@@ -1,0 +1,130 @@
+CREATE OR REPLACE PROCEDURE `clingen-stage.clinvar_curator.voi_scv_change_proc`()
+BEGIN
+
+    -- create or replace voi_scv_change table
+    CREATE TEMP TABLE _SESSION.release_start_vsc AS
+    SELECT 
+        st.start_release_date, 
+        st.variation_id, 
+        row_number () over (order by st.variation_id, st.start_release_date asc nulls first) as rownum
+    FROM (
+        SELECT 
+            start_release_date as start_release_date, 
+            variation_id
+        FROM `clingen-stage.clinvar_curator.voi_scv` vs
+        WHERE 
+            vs.end_release_date >= clinvar_curator.get_project_start_date()
+        UNION ALL
+        SELECT DISTINCT
+            FIRST_VALUE(r.release_date) OVER (PARTITION BY vs.end_release_date ORDER BY r.release_date) AS start_release_date, 
+            variation_id
+        FROM `clingen-stage.clinvar_curator.voi_scv` vs
+        LEFT JOIN `clingen-stage.clinvar_curator.clinvar_project_releases` r 
+        ON 
+            r.release_date > end_release_date
+        WHERE 
+            vs.end_release_date >= clinvar_curator.get_project_start_date() 
+    ) st
+    GROUP BY 
+        st.variation_id, 
+        st.start_release_date;
+
+    CREATE TEMP TABLE _SESSION.release_end_vsc AS
+    SELECT 
+        en.end_release_date, 
+        en.variation_id, 
+        row_number () over (order by en.variation_id, en.end_release_date asc nulls last) as rownum
+    FROM (
+        SELECT 
+            end_release_date as end_release_date, 
+            variation_id 
+        FROM `clingen-stage.clinvar_curator.voi_scv` vs
+        WHERE 
+            vs.end_release_date >= clinvar_curator.get_project_start_date() 
+        UNION ALL
+        SELECT DISTINCT 
+            FIRST_VALUE(r.release_date) OVER (PARTITION BY vs.start_release_date ORDER BY r.release_date desc) AS end_release_date, 
+            variation_id
+        FROM `clingen-stage.clinvar_curator.voi_scv` vs
+        LEFT JOIN `clingen-stage.clinvar_curator.clinvar_project_releases` r 
+        ON 
+            r.release_date < vs.start_release_date
+        WHERE 
+            vs.end_release_date >= clinvar_curator.get_project_start_date() 
+    ) en
+    GROUP BY 
+        en.variation_id, 
+        en.end_release_date;
+
+    CREATE OR REPLACE TABLE `clingen-stage.clinvar_curator.voi_scv_change` AS
+    SELECT 
+        e.variation_id, 
+        s.start_release_date, 
+        e.end_release_date
+    FROM _SESSION.release_start_vsc s
+    JOIN _SESSION.release_end_vsc e 
+    ON 
+        e.rownum = s.rownum+1
+    WHERE 
+        e.variation_id = s.variation_id
+    ORDER BY s.rownum;
+
+    DROP TABLE _SESSION.release_start_vsc;
+    DROP TABLE _SESSION.release_end_vsc;
+
+END;
+
+
+
+--555,005 as of 8/29
+
+
+
+-- select start_release_date, end_release_date 
+-- from `clingen-stage.clinvar_curator.voi_scv` vs 
+-- where vs.variation_id = "11496" 
+-- order by start_release_date
+
+-- notes
+-- start1  end1
+-- start2  end2
+-- start3  end3
+
+-- end0.1(start1-1)
+-- (no gap)
+-- start1
+-- (possible gap)
+-- end1
+-- (no gap)
+-- start2.0(end1+1)
+-- end1.1(start2-1)
+-- (no gap)
+-- start2
+
+-- x......01...02...03...04...05...06...07...08...09...10...11.........z
+--  .     s1        e1
+--                  s2.  e2
+--                                 s3             e3
+--                                           s4             e4
+--                 e0.1/s1-1(x)
+-- s1 (01)         e1(03)
+-- s2.0/e1+1(04)    
+--                 e1.1/s2-1(02)
+-- s2(03)          e2(04)
+-- s3.0/e2+1(05)      
+--                 e2.1/s3-1(05)
+-- s3(06)          e3(09)
+-- s4.0/e3+1(10).  
+--                 e3.1/s4-1(07)
+-- s4(08)          e4(11)
+-- s5.0/e4+1(z)
+
+--         x
+-- 01      02.  r1
+-- 03      03.  r1,r2
+-- 04      04.  r2
+-- 05      05.  empty
+-- 06      07   r3. 
+-- 08      09.  r3,r4
+-- 10      11   r4
+-- z       

@@ -1,0 +1,226 @@
+-- -- to initialize the Most Recent list of all "clinvar_submitters"
+-- -- first run the following...
+-- CREATE OR REPLACE TABLE `clingen-stage.clinvar_curator.clinvar_submitters` 
+-- (	
+--   id	STRING,
+--   current_name	STRING,
+--   current_abbrev STRING,
+--   cvc_abbrev STRING,
+--   org_category STRING,
+--   all_names	ARRAY<STRING>,
+--   all_abbrevs	ARRAY<STRING>,
+--   release_date	DATE,
+--   lu_release_date DATE,
+--   deleted_release_date DATE
+-- );
+
+-- verify where the last update of this table was and only process releases beyond that
+-- select release_date from `clingen-stage.clinvar_curator.clinvar_submitters` group by release_date order by 1 desc;
+
+CREATE OR REPLACE PROCEDURE `clingen-stage.clinvar_curator.clinvar_submitters_proc`(start_with STRING)
+BEGIN
+
+  DECLARE schemas ARRAY<STRUCT<schema_name STRING, release_date DATE, next_release_date DATE>>;
+  call clinvar_curator.get_schemas(start_with, schemas);
+
+  FOR rec IN (select s.schema_name, s.release_date, s.next_release_date FROM UNNEST(schemas) as s)
+  DO
+  EXECUTE IMMEDIATE FORMAT("""
+    -- add any missing records
+    INSERT `clingen-stage.clinvar_curator.clinvar_submitters` 
+    (
+      id, current_name, current_abbrev, 
+      cvc_abbrev, org_category, all_names, 
+      all_abbrevs, release_date, lu_release_date
+    ) 
+    SELECT 
+      s.id, 
+      s.current_name,
+      s.current_abbrev,
+      IFNULL(s.current_abbrev, csa.current_abbrev) as cvc_abbrev,
+      s.org_category,  
+      s.all_names, 
+      s.all_abbrevs, 
+      %T as release_date, 
+      %T as lu_release_date
+    FROM `clingen-stage.%s.submitter` s
+    LEFT JOIN `clingen-stage.clinvar_curator.clinvar_submitter_abbrevs` csa 
+    ON 
+      csa.submitter_id = s.id
+    WHERE NOT EXISTS 
+    (
+      SELECT 
+        cs.id 
+      FROM `clingen-stage.clinvar_curator.clinvar_submitters` cs 
+      WHERE 
+        cs.id = s.id
+    )
+  """, rec.release_date, rec.release_date, rec.schema_name);
+
+  -- for any older records only update the released value
+  EXECUTE IMMEDIATE FORMAT("""
+    UPDATE `clingen-stage.clinvar_curator.clinvar_submitters` cs
+    SET release_date = %T
+    WHERE EXISTS 
+    (
+      SELECT 
+        s.id 
+      FROM `clingen-stage.%s.submitter` s 
+      WHERE 
+        s.id = cs.id AND 
+        %T < cs.release_date
+    )
+  """, rec.release_date, rec.schema_name, rec.release_date);
+
+  -- for any newer records, update all the fields.
+  EXECUTE IMMEDIATE FORMAT("""
+    UPDATE `clingen-stage.clinvar_curator.clinvar_submitters` cs
+    SET 
+      lu_release_date = %T, 
+      current_name = s.current_name, 
+      all_names = s.all_names, 
+      all_abbrevs = s.all_abbrevs, 
+      current_abbrev = s.current_abbrev, 
+      org_category = s.org_category
+    FROM `clingen-stage.%s.submitter` s
+    WHERE 
+      s.id = cs.id AND 
+      %T > cs.lu_release_date
+  """, rec.release_date, rec.schema_name, rec.release_date);
+
+  END FOR;
+
+END;
+
+
+-- select  distinct ss.submitter_id, ss.id, ss.variation_id, ss.release_date
+-- from `clingen-stage.clinvar_2019_06_01_v0.scv_summary` ss
+-- where not exists (
+--   select id
+--   from `clingen-stage.clinvar_curator.clinvar_submitters` cs
+--   where cs.id = ss.submitter_id
+-- )
+--  and ss.release_date = DATE '2015-03-06'
+-- -- group by ss.submitter_id
+-- order by 1
+
+-- -- repair bad submitter ids pre-201907
+-- UPDATE `clingen-stage.clinvar_2019_06_01_v0.scv_summary` 
+-- SET scv.submitter_id = vals.good_id
+-- FROM (
+--   SELECT '1' bad_id, '500139' good_id UNION ALL
+--   SELECT '500006' bad_id, '506018' good_id UNION ALL
+--   SELECT '500007' bad_id, '506018' good_id UNION ALL
+--   SELECT '500008' bad_id, '506018' good_id UNION ALL
+--   SELECT '500009' bad_id, '506018' good_id UNION ALL
+--   SELECT '500010' bad_id, '506018' good_id UNION ALL
+--   SELECT '500011' bad_id, '506018' good_id UNION ALL
+--   SELECT '500064' bad_id, '1160' good_id UNION ALL
+--   SELECT '500166' bad_id, '500133' good_id UNION ALL
+--   SELECT '505708' bad_id, '506834' good_id UNION ALL
+--   SELECT '505333' bad_id, '1006' good_id UNION ALL
+--   SELECT '505345' bad_id, '25969' good_id UNION ALL
+--   SELECT '505346' bad_id, '505572' good_id UNION ALL
+--   SELECT '505363' bad_id, '320418' good_id UNION ALL
+--   SELECT '500121' bad_id, '506047' good_id UNION ALL
+--   SELECT '500129' bad_id, '505260' good_id UNION ALL
+--   SELECT '500145' bad_id, '25969' good_id UNION ALL
+--   SELECT '505751' bad_id, '505642' good_id UNION ALL
+--   SELECT '505978' bad_id, '506617' good_id UNION ALL
+--   SELECT '506000' bad_id, '506627' good_id UNION ALL
+--   SELECT '504961' bad_id, '1006' good_id UNION ALL
+--   SELECT '504815' bad_id, '506543' good_id UNION ALL
+--   SELECT '500265' bad_id, '500126' good_id UNION ALL
+--   SELECT '500293' bad_id, '507238' good_id UNION ALL
+--   SELECT '500313' bad_id, '1238' good_id UNION ALL
+--   SELECT '504819' bad_id, '504864' good_id UNION ALL
+--   SELECT 'Sharing Clinical Report Project' bad_id, '500037' good_id UNION ALL
+--   SELECT 'Sharing Clinical Report Project (SCRP)' bad_id, '500037' good_id UNION ALL
+--   SELECT 'ISCA Consortium' bad_id, '505237' good_id UNION ALL
+--   SELECT 'ARUP' bad_id, '506018' good_id UNION ALL
+--   SELECT 'LabCorp' bad_id, '500026' good_id UNION ALL
+--   SELECT '505239' bad_id, '319864' good_id UNION ALL
+--   SELECT 'Emory Genetics Laboratory' bad_id, '500060' good_id UNION ALL
+--   SELECT 'Ambry Genetics,Ambry Genetics Corp' bad_id, '61756' good_id UNION ALL
+--   SELECT '505689' bad_id, '505820' good_id UNION ALL
+--   SELECT '504846' bad_id, '505291' good_id UNION ALL
+--   SELECT '505229' bad_id, '505721' good_id UNION ALL
+--   SELECT '505508' bad_id, '505641' good_id
+-- ) vals
+-- WHERE vals.bad_id = submitter_id
+-- ;
+
+-- additional scripts to clean up bogus or modified submitter_ids lost over time
+-- SELECT id, submitter_ids
+-- FROM (
+--   SELECT id, array_agg(distinct submitter_id) as submitter_ids
+--   FROM `clingen-stage.clinvar_curator.clinvar_scvs` 
+--   group by id
+--   HAVING COUNT(distinct submitter_id) > 1 
+-- )
+-- ;
+
+-- update `clingen-stage.clinvar_2019_06_01_v0.scv_summary` ss
+--   set submitter_id = "26957"
+-- where id = "SCV000079669"
+-- ;
+
+-- update `clingen-stage.clinvar_curator.clinvar_scvs` cs
+--   set submitter_id = "26957"
+-- where id = "SCV000079669"
+-- ;
+
+-- update `clingen-stage.clinvar_2019_06_01_v0.scv_summary` ss
+-- SET ss.submitter_id = scv.submitter_id
+-- FROM (
+--   SELECT scv1.id, scv1.submitter_id
+--   FROM `clingen-stage.clinvar_curator.clinvar_scvs` scv1
+--   where scv1.submitter_id not in ("500029", "500062")
+--   and exists 
+--   (
+--     select scv2.id from `clingen-stage.clinvar_curator.clinvar_scvs` scv2 
+--     where scv2.id = scv1.id and scv2.submitter_id in ("500029", "500062")
+--   )
+--   group by scv1.id, scv1.submitter_id
+-- ) scv
+-- WHERE ss.submitter_id in ("500029", "500062") and scv.id = ss.id 
+-- ; 
+
+-- update `clingen-stage.clinvar_curator.clinvar_scvs` cs
+-- SET cs.submitter_id = scv.submitter_id
+-- FROM (
+--   SELECT scv1.id, scv1.submitter_id
+--   FROM `clingen-stage.clinvar_curator.clinvar_scvs` scv1
+--   where scv1.submitter_id not in ("500029", "500062") 
+--   and exists 
+--   (
+--     select scv2.id from `clingen-stage.clinvar_curator.clinvar_scvs` scv2 
+--     where scv2.id = scv1.id and scv2.submitter_id in ("500029", "500062")
+--   )
+--   group by scv1.id, scv1.submitter_id
+-- ) scv
+-- WHERE cs.submitter_id in ("500029", "500062") and scv.id = cs.id 
+-- ; 
+
+-- CREATE OR REPLACE TABLE `clingen-stage.clinvar_2019_06_01_v0.submitter`
+-- (
+--   id STRING,
+--   current_name STRING,
+--   current_abbrev STRING,
+--   org_category STRING,
+--   all_names	ARRAY<STRING>,
+--   all_abbrevs	ARRAY<STRING>
+-- );
+
+-- INSERT INTO  `clingen-stage.clinvar_2019_06_01_v0.submitter`
+--   (id, current_name, org_category)
+-- VALUES ("500168", "Samuels NHGRI/NIH", "other")
+-- ;
+-- INSERT INTO  `clingen-stage.clinvar_2019_06_01_v0.submitter`
+--   (id, current_name, org_category)
+-- VALUES ("500266", "Leeds Institute of Molecular Medicine (LIMM)", "other")
+-- ;
+-- INSERT INTO  `clingen-stage.clinvar_2019_06_01_v0.submitter`
+--   (id, current_name, org_category)
+-- VALUES ("505239", "ISCA site 13", "other")
+-- ;
