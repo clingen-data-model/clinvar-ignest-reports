@@ -1,0 +1,115 @@
+-- add vcv ids and names with the original release date and most_recent release date 
+-- - for all vcvs over time, if deleted, mark release it was first not shown (or deleted from)
+
+-- -- initialize table 
+-- CREATE OR REPLACE TABLE `clingen-stage.clinvar_curator.clinvar_vcvs`
+-- (
+--   variation_id STRING NOT NULL,
+--   id STRING NOT NULL, 
+--   version INT NOT NULL, 
+--   rank INT NOT NULL, 
+--   last_evaluated DATE,
+--   agg_classification STRING,
+--   start_release_date DATE,
+--   end_release_date DATE,
+--   deleted_release_date DATE,
+--   deleted_count INT DEFAULT 0
+-- );
+
+CREATE OR REPLACE PROCEDURE `clingen-stage.clinvar_curator.clinvar_vcvs_proc`(start_with STRING)
+BEGIN
+
+  DECLARE schemas ARRAY<STRUCT<schema_name STRING, release_date DATE, next_release_date DATE>>;
+  call clinvar_curator.get_schemas(start_with, schemas);
+
+  FOR rec IN 
+  (
+    SELECT 
+      s.schema_name, 
+      s.release_date, 
+      s.next_release_date 
+    FROM UNNEST(schemas) as s
+  )
+  DO
+
+    -- deleted vcvs (where it exists in clinvar_vcvs (for deleted_release_date is null), but doesn't exist in current data set )
+    EXECUTE IMMEDIATE FORMAT("""
+      UPDATE `clingen-stage.clinvar_curator.clinvar_vcvs` cvcv
+      SET 
+        deleted_release_date = %T,
+        deleted_count = deleted_count + 1
+      WHERE 
+        cvcv.deleted_release_date is NULL AND
+        NOT EXISTS 
+        (
+          SELECT 
+            vcv.variation_id, 
+            vcv.id, 
+            vcv.version 
+          FROM `clingen-stage.%s.variation_archive` vcv
+          WHERE  
+          vcv.release_date = %T AND 
+            vcv.variation_id = cvcv.variation_id AND 
+            vcv.id = cvcv.id AND 
+            vcv.version = cvcv.version
+        )
+    """, rec.release_date, rec.schema_name, rec.release_date);
+
+    -- updated variations
+    EXECUTE IMMEDIATE FORMAT("""
+      UPDATE `clingen-stage.clinvar_curator.clinvar_vcvs` cvcv
+      SET 
+        rank = cvs1.rank,
+        last_evaluated = vcv.interp_date_last_evaluated,
+        agg_classification = vcv.interp_description,
+        end_release_date = vcv.release_date,
+        deleted_release_date = NULL
+      FROM `clingen-stage.%s.variation_archive` vcv
+      LEFT JOIN `clingen-stage.clinvar_curator.clinvar_status` cvs1 
+      ON 
+        cvs1.label = vcv.review_status
+      WHERE 
+        vcv.release_date = %T AND 
+        vcv.variation_id = cvcv.variation_id AND 
+        vcv.id = cvcv.id AND 
+        vcv.version = cvcv.version
+    """, rec.schema_name, rec.release_date);
+
+    -- new variations
+    EXECUTE IMMEDIATE FORMAT("""
+      INSERT INTO `clingen-stage.clinvar_curator.clinvar_vcvs` 
+      (
+        variation_id,  id, version, rank, 
+        last_evaluated, agg_classification, 
+        start_release_date, end_release_date
+      )
+      SELECT 
+        vcv.variation_id, 
+        vcv.id, 
+        vcv.version, 
+        cvs1.rank, 
+        vcv.interp_date_last_evaluated,
+        vcv.interp_description,
+        vcv.release_date as start_release_date, 
+        vcv.release_date as end_release_date
+      FROM `clingen-stage.%s.variation_archive` vcv
+      LEFT JOIN `clingen-stage.clinvar_curator.clinvar_status` cvs1 
+      ON 
+        cvs1.label = vcv.review_status
+      WHERE 
+        vcv.release_date = %T AND
+        NOT EXISTS 
+        (
+          SELECT 
+            cvcv.id 
+          FROM `clingen-stage.clinvar_curator.clinvar_vcvs` cvcv
+          WHERE 
+            vcv.variation_id = cvcv.variation_id AND 
+            vcv.id = cvcv.id AND 
+            vcv.version = cvcv.version 
+        )
+    """, rec.schema_name, rec.release_date);
+
+  END FOR;       
+
+END;

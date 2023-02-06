@@ -1,0 +1,284 @@
+-- variants of interest and their scvs (run anytime after report_variation is updated)
+
+-- -- distinct list of variants of interest to reduce downstream processing
+-- CREATE OR REPLACE TABLE `clingen-stage.clinvar_curator.voi`
+-- (
+--     variation_id STRING NOT NULL,
+--     name STRING,
+--     mane_select BOOLEAN,
+--     gene_id STRING,
+--     gene_symbol STRING,
+--     start_release_date DATE,
+--     end_release_date DATE,
+--     deleted_release_date DATE,
+--     deleted_count INT DEFAULT 0,
+--     added DATETIME
+--   );
+
+-- -- distinct list of vcvs related to vois to reduce downstream processing
+-- CREATE OR REPLACE TABLE `clingen-stage.clinvar_curator.voi_vcv`
+-- (
+--     variation_id STRING NOT NULL,
+--     id STRING NOT NULL,
+--     version INT NOT NULL,
+--     full_vcv_id STRING,
+--     rank INT NOT NULL, 
+--     last_evaluated DATE,
+--     agg_classification STRING,
+--     start_release_date DATE,
+--     end_release_date DATE,
+--     deleted_release_date DATE,
+--     deleted_count INT DEFAULT 0,
+--     added DATETIME
+--   );
+
+-- -- distinct list of scvs for the variants of interest to reduce downstream processing
+-- -- NOTE: the clinvar_scvs table has one and only one record per scv id+version
+-- -- append any new var/scvid+ver's to the voi_scvs table which is a distinct list of var/scvid+ver's of interest for reporting.
+-- CREATE OR REPLACE TABLE `clingen-stage.clinvar_curator.voi_scv`
+-- (
+--   variation_id STRING NOT NULL,
+--   id STRING NOT NULL,
+--   version INT NOT NULL,
+--   full_scv_id STRING,
+--   rpt_stmt_type STRING,
+--   rank INT,
+--   last_evaluated DATE,
+--   classif_type STRING,
+--   submitted_classification STRING,
+--   clinsig_type INT,
+--   classification_label STRING,
+--   classification_abbrev STRING,
+--   submitter_id STRING,
+--   submitter_name STRING,
+--   submitter_abbrev STRING,
+--   submission_date DATE,
+--   origin STRING,
+--   affected_status STRING,
+--   method_type STRING,
+--   start_release_date DATE,
+--   end_release_date DATE,
+--   deleted_release_date DATE,
+--   deleted_count INT DEFAULT 0,
+--   added DATETIME
+-- );
+
+CREATE OR REPLACE PROCEDURE `clingen-stage.clinvar_curator.voi_vcv_scv_proc`()
+BEGIN
+
+  DECLARE now DATETIME;
+  SET now = CURRENT_DATETIME();
+
+  UPDATE `clingen-stage.clinvar_curator.voi` v
+  SET
+    v.name= cv.name,
+    v.end_release_date = cv.end_release_date,
+    v.deleted_release_date = cv.deleted_release_date,
+    v.deleted_count = cv.deleted_count
+  FROM `clingen-stage.clinvar_curator.clinvar_variations` cv
+  WHERE 
+    cv.id = v.variation_id AND
+    (
+      cv.end_release_date > v.end_release_date OR
+      IFNULL(cv.deleted_release_date,CURRENT_DATE()) > IFNULL(v.deleted_release_date,CURRENT_DATE()) OR
+      cv.deleted_count <> v.deleted_count
+    ) ;
+
+  -- append any new variation_id's to the voi table which is a distinct list of variants of interest for reporting.
+  INSERT `clingen-stage.clinvar_curator.voi`
+  (
+    variation_id, name, 
+    mane_select, 
+    gene_id, gene_symbol,
+    start_release_date, end_release_date,
+    deleted_release_date, deleted_count, 
+    added
+  )
+  SELECT DISTINCT
+    rv.variation_id AS variation_id,
+    cv.name,
+    csgv.mane_select,
+    csgv.gene_id,
+    cg.symbol,
+    cv.start_release_date,
+    cv.end_release_date,
+    cv.deleted_release_date,
+    cv.deleted_count,
+    now AS added
+  FROM (
+    SELECT rv.variation_id
+    FROM `clingen-stage.clinvar_curator.report_variation` rv
+    GROUP BY rv.variation_id) rv
+  LEFT JOIN `clingen-stage.clinvar_curator.clinvar_variations` cv 
+  ON 
+    rv.variation_id = cv.id
+  LEFT JOIN `clingen-stage.clinvar_curator.clinvar_single_gene_variations` csgv 
+  ON 
+    rv.variation_id = csgv.variation_id 
+  LEFT JOIN `clingen-stage.clinvar_curator.clinvar_genes`  cg 
+  ON 
+    cg.id = csgv.gene_id 
+  WHERE NOT EXISTS (
+    SELECT variation_id
+    FROM `clingen-stage.clinvar_curator.voi`
+    WHERE variation_id = rv.variation_id ) 
+  ;
+
+  UPDATE `clingen-stage.clinvar_curator.voi_vcv` vv
+  SET
+    vv.rank = cv.rank,
+    vv.last_evaluated = cv.last_evaluated,
+    vv.agg_classification = cv.agg_classification,
+    vv.end_release_date = cv.end_release_date,
+    vv.deleted_release_date = cv.deleted_release_date,
+    vv.deleted_count = cv.deleted_count
+  FROM `clingen-stage.clinvar_curator.clinvar_vcvs` cv
+  WHERE 
+    cv.variation_id = vv.variation_id AND 
+    cv.id = vv.id AND 
+    cv.version = vv.version AND 
+    (
+      cv.end_release_date > vv.end_release_date OR
+      IFNULL(cv.deleted_release_date,CURRENT_DATE()) > IFNULL(vv.deleted_release_date,CURRENT_DATE()) OR
+      cv.deleted_count <> vv.deleted_count
+    ) ;
+
+  INSERT `clingen-stage.clinvar_curator.voi_vcv`
+  (
+    variation_id, id, version, full_vcv_id,
+    rank, last_evaluated, agg_classification,
+    start_release_date, end_release_date, 
+    deleted_release_date, deleted_count, added
+  )
+  SELECT 
+    cv.variation_id,
+    cv.id,
+    cv.version,
+    FORMAT('%s.%i', cv.id, cv.version) as full_vcv_id,
+    cv.rank,
+    cv.last_evaluated,
+    cv.agg_classification,
+    cv.start_release_date,
+    cv.end_release_date,
+    cv.deleted_release_date,
+    cv.deleted_count,
+    now as added
+  FROM `clingen-stage.clinvar_curator.voi` voi 
+  JOIN `clingen-stage.clinvar_curator.clinvar_vcvs` cv 
+  ON 
+    voi.variation_id = cv.variation_id
+  WHERE NOT EXISTS (
+    SELECT vv.variation_id 
+    FROM `clingen-stage.clinvar_curator.voi_vcv` vv  
+    WHERE 
+      vv.variation_id = cv.variation_id AND 
+      vv.id = cv.id AND 
+      vv.version = cv.version
+  );
+
+  UPDATE `clingen-stage.clinvar_curator.voi_scv` vs
+  SET
+    vs.rpt_stmt_type = cs.rpt_stmt_type,
+    vs.rank = cs.rank,
+    vs.last_evaluated = cs.last_evaluated,
+    vs.classif_type = cs.classif_type,
+    vs.submitted_classification = cs.submitted_classification,
+    vs.clinsig_type = cs.clinsig_type,
+    vs.classification_label = 
+      FORMAT( '%s, %s, %s', 
+        cct.label, 
+        if(cs.rank > 0,format("%i%s", cs.rank, CHR(9733)), IF(cs.rank = 0, format("%i%s", cs.rank, CHR(9734)), "n/a")), 
+        if(cs.last_evaluated is null, "<n/a>", format("%t", cs.last_evaluated))),
+    vs.classification_abbrev = 
+      FORMAT( '%s, %s, %t', 
+        UPPER(cs.classif_type), 
+        if(cs.rank > 0,format("%i%s", cs.rank, CHR(9733)), IF(cs.rank = 0, format("%i%s", cs.rank, CHR(9734)), "n/a")), 
+        if(cs.last_evaluated is null, "<n/a>", format("%t", cs.last_evaluated))),
+    vs.submitter_id = cs.submitter_id,
+    vs.submitter_name = s.current_name,
+    vs.submitter_abbrev = s.cvc_abbrev,
+    vs.submission_date = cs.submission_date,
+    vs.origin = cs.origin,
+    vs.affected_status = cs.affected_status,
+    vs.method_type = cs.method_type,
+    vs.end_release_date = cs.end_release_date,
+    vs.deleted_release_date = cs.deleted_release_date,
+    vs.deleted_count = cs.deleted_count
+  FROM `clingen-stage.clinvar_curator.clinvar_scvs` cs
+  LEFT JOIN `clingen-stage.clinvar_curator.clinvar_submitters` s 
+  ON 
+    cs.submitter_id = s.id
+  LEFT JOIN `clingen-stage.clinvar_curator.clinvar_clinsig_types` cct 
+  ON 
+    cct.code = cs.classif_type
+  WHERE 
+    cs.variation_id = vs.variation_id AND 
+    cs.id = vs.id AND 
+    cs.version = vs.version AND 
+    (
+      cs.end_release_date > vs.end_release_date OR
+      IFNULL(cs.deleted_release_date,CURRENT_DATE()) > IFNULL(vs.deleted_release_date,CURRENT_DATE()) OR
+      cs.deleted_count <> vs.deleted_count
+    ) ;
+
+
+  INSERT `clingen-stage.clinvar_curator.voi_scv`
+  (
+    variation_id, id, version, full_scv_id,
+    rpt_stmt_type, rank, last_evaluated, classif_type,
+    submitted_classification, clinsig_type, classification_label,
+    classification_abbrev, submitter_id, submitter_name,
+    submitter_abbrev, submission_date, origin, affected_status,
+    method_type, start_release_date, end_release_date, 
+    deleted_release_date, deleted_count, added
+  )
+  SELECT 
+    cs.variation_id,
+    cs.id,
+    cs.version,
+    FORMAT('%s.%i', cs.id, cs.version) as full_scv_id,
+    cs.rpt_stmt_type,
+    cs.rank,
+    cs.last_evaluated,
+    cs.classif_type,
+    cs.submitted_classification,
+    cs.clinsig_type,
+    FORMAT( '%s, %s, %t', 
+        cct.label, 
+        if(cs.rank > 0,format("%i%s", cs.rank, CHR(9733)), IF(cs.rank = 0, format("%i%s", cs.rank, CHR(9734)), "n/a")), 
+        if(cs.last_evaluated is null, "<n/a>", format("%t", cs.last_evaluated))),
+    FORMAT( '%s, %s, %t', 
+        UPPER(cs.classif_type), 
+        if(cs.rank > 0,format("%i%s", cs.rank, CHR(9733)), IF(cs.rank = 0, format("%i%s", cs.rank, CHR(9734)), "n/a")), 
+        if(cs.last_evaluated is null, "<n/a>", format("%t", cs.last_evaluated))),
+    cs.submitter_id,
+    s.current_name as submitter_name,
+    s.cvc_abbrev as submitter_abbrev,
+    cs.submission_date,
+    cs.origin,
+    cs.affected_status,
+    cs.method_type,
+    cs.start_release_date,
+    cs.end_release_date,
+    cs.deleted_release_date,
+    cs.deleted_count,
+    now as added
+  FROM `clingen-stage.clinvar_curator.voi` voi 
+  JOIN `clingen-stage.clinvar_curator.clinvar_scvs` cs 
+  ON 
+    voi.variation_id = cs.variation_id
+  LEFT JOIN `clingen-stage.clinvar_curator.clinvar_submitters` s 
+  ON
+    cs.submitter_id = s.id
+  LEFT JOIN `clingen-stage.clinvar_curator.clinvar_clinsig_types` cct 
+  ON 
+    cct.code = cs.classif_type
+  WHERE NOT EXISTS (
+    SELECT vs.variation_id from `clingen-stage.clinvar_curator.voi_scv` vs  
+    WHERE 
+      vs.variation_id = cs.variation_id AND 
+      vs.id = cs.id AND 
+      vs.version = cs.version
+  );
+
+END;

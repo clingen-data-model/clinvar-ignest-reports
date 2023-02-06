@@ -1,0 +1,12 @@
+bq mk \
+--table \
+--project_id=clingen-stage \
+--external_table_definition=clinvar_curations_tabledef \
+clinvar_curator.clinvar_curations
+
+
+# https://cloud.google.com/bigquery/docs/reference/bq-cli-reference#mk-table
+#https://cloud.google.com/bigquery/docs/external-data-sources
+#check this out https://cloud.google.com/bigquery/docs/external-table-definition#google_drive_2
+#then this...
+#https://cloud.google.com/bigquery/docs/reference/rest/v2/tables#externaldataconfiguration

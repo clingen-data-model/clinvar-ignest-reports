@@ -1,0 +1,142 @@
+CREATE OR REPLACE PROCEDURE `clingen-stage.clinvar_curator.scv_summary_proc`(start_with STRING)
+BEGIN
+
+  DECLARE schemas ARRAY<STRUCT<schema_name STRING, release_date DATE, next_release_date DATE>>;
+  call clinvar_curator.get_schemas(start_with, schemas);
+
+  FOR rec IN 
+  (
+    SELECT 
+      s.schema_name, 
+      s.release_date, 
+      s.next_release_date 
+    FROM UNNEST(schemas) as s
+  )
+  DO
+    EXECUTE IMMEDIATE FORMAT("""
+      CREATE OR REPLACE TABLE `clingen-stage.%s.scv_summary` AS
+      WITH caobs AS (
+        SELECT 
+          ca.id, 
+          ca.version, 
+          MAX(cvc_processed.curated_on) as last_processed_curation_on,
+          MAX(cvc_pending.curated_on) as pending_curation_on,
+          STRING_AGG(DISTINCT origin, ", " ORDER BY origin) as origin,
+          STRING_AGG(DISTINCT affected_status, ", " ORDER BY affected_status) as affected_status,
+          STRING_AGG(DISTINCT method_type, ", " ORDER BY method_type) as method_type
+        FROM `clingen-stage.%s.clinical_assertion` ca 
+        LEFT JOIN 
+        (
+          SELECT 
+            REGEXP_EXTRACT(id, r'^SCV[0-9]+') as id, 
+            JSON_EXTRACT_SCALAR(obs.content, "$.Sample['Origin']['$']") as origin,
+            JSON_EXTRACT_SCALAR(obs.content, "$.Sample['AffectedStatus']['$']") as affected_status,
+            JSON_EXTRACT_SCALAR(method_content, "$['MethodType']['$']") as method_type
+          FROM `clingen-stage.%s.clinical_assertion_observation` obs,
+          UNNEST(IFNULL( JSON_EXTRACT_ARRAY(obs.content, '$.Method'), [ JSON_EXTRACT(obs.content, '$.Method') ])) as method_content
+          -- test case for single record with multiple vals in the obs fields.
+          -- WHERE STARTS_WITH(id, 'SCV000611091')
+        ) obs 
+        ON 
+          ca.id = obs.id
+        LEFT JOIN `clingen-stage.clinvar_curator.cvc_scv_curations` cvc_processed 
+        ON 
+          cvc_processed.scv_id = obs.id AND 
+          cvc_processed.scv_ver = ca.version AND 
+          CAST(cvc_processed.curated_on AS DATE) <= %T
+        LEFT JOIN `clingen-stage.clinvar_curator.cvc_scv_curations` cvc_pending 
+        ON 
+          cvc_pending.scv_id = obs.id AND 
+          cvc_pending.scv_ver = ca.version AND 
+          CAST(cvc_pending.curated_on AS DATE) BETWEEN %T AND %T
+          -- where cvc_processed.curated_on is not null OR cvc_pending.curated_on is not null
+        GROUP BY 
+          ca.id, 
+          ca.version
+      )
+      SELECT 
+        %T as release_date,
+        ca1.id, 
+        ca1.version, 
+        ca1.variation_id, 
+        ca1.interpretation_date_last_evaluated as last_evaluated, 
+        cvs1.rank,
+        ca1.review_status, 
+        cst1.clinvar_prop_type as clinvar_stmt_type,
+        cst1.cvc_prop_type as cvc_stmt_type,
+        ca1.interpretation_description as submitted_classification,
+        IFNULL(map1.cv_clinsig_type, '-') as classif_type,
+        cst1.significance,
+        ca1.submitter_id,
+        s1.submission_date, 
+        caobs.origin,
+        caobs.affected_status,
+        caobs.method_type,
+        cvc_processed.action as last_processed_curation_action,
+        cvc_pending.action as pending_curation_action
+      FROM `clingen-stage.%s.clinical_assertion` ca1
+      JOIN caobs 
+      ON caobs.id = ca1.id
+      LEFT JOIN `clingen-stage.%s.submission` s1 
+      ON 
+        s1.id = ca1.submission_id
+      LEFT JOIN `clingen-stage.clinvar_curator.cvc_scv_curations` cvc_processed 
+      ON 
+        cvc_processed.scv_id = ca1.id AND 
+        cvc_processed.scv_ver = ca1.version AND 
+        cvc_processed.curated_on = caobs.last_processed_curation_on
+      LEFT JOIN `clingen-stage.clinvar_curator.cvc_scv_curations` cvc_pending 
+      ON 
+        cvc_pending.scv_id = ca1.id AND 
+        cvc_pending.scv_ver = ca1.version AND 
+        cvc_pending.curated_on = caobs.pending_curation_on
+      LEFT JOIN `clingen-stage.clinvar_curator.scv_clinsig_map` map1 
+      ON 
+        map1.scv_term = lower(IF(ca1.id IS NULL, NULL, IFNULL(ca1.interpretation_description,'not provided')))
+      LEFT JOIN `clingen-stage.clinvar_curator.clinvar_clinsig_types` cst1 
+      ON 
+        cst1.code = map1.cv_clinsig_type
+      LEFT JOIN `clingen-stage.clinvar_curator.clinvar_status` cvs1 
+      ON 
+        cvs1.label = ca1.review_status
+    """, rec.schema_name, rec.schema_name, rec.schema_name, rec.release_date, rec.release_date, rec.next_release_date, rec.release_date, rec.schema_name, rec.schema_name);
+
+  END FOR;
+
+END;
+
+-- NOTES for creating scv_summary data for pre-20190701 data
+-- you must first create the `clingen-dx.clinvar_varsum.scv`
+-- table from the extracted data scripts and files discussed 
+-- in the pre2017 script folder
+
+-- convert scv file into an scv_summary format
+-- CREATE OR REPLACE TABLE `clingen-stage.clinvar_2019_06_01_v0.scv_summary` AS
+--   SELECT 
+--     CAST(rf.release_date AS DATE) as release_date,
+--     scv.id,
+--     CAST(scv.version as INTEGER) as version,
+--     scv.variation_id, 
+--     scv.last_eval_date as last_evaluated, 
+--     cvs1.rank,
+--     cvs1.label as review_status,
+--     cst1.clinvar_prop_type as clinvar_stmt_type,
+--     cst1.cvc_prop_type as cvc_stmt_type,
+--     scv.classification as submitted_classification,
+--     IFNULL(map1.cv_clinsig_type, '-') as classif_type,
+--     cst1.significance,
+--     IF(LENGTH(TRIM(scv.submitter_id))=0, IFNULL(s.id, scv.submitter_name), scv.submitter_id) as submitter_id,
+--     scv.submission_date, 
+--     CAST(null as STRING) as origin,
+--     CAST(null as STRING) as affected_status,
+--     CAST(null as STRING) as method_type,
+--     CAST(null as STRING) as last_processed_curation_action,
+--     CAST(null as STRING) as pending_curation_action
+--    FROM `clingen-dx.clinvar_varsum.scv` as scv
+--    LEFT JOIN `clingen-stage.clinvar_curator.clinvar_monthly_release_file` rf on scv.release = rf.release
+--    left join `clingen-stage.clinvar_curator.clinvar_status` cvs1 on cvs1.label = IF(LENGTH(TRIM(scv.review_status))=0, IF(LENGTH(TRIM(scv.classification))=0,"no assertion provided", "no assertion criteria provided"), scv.review_status)
+--    left join `clingen-stage.clinvar_curator.scv_clinsig_map` map1 on 
+--         map1.scv_term = IF(LENGTH(TRIM(scv.classification))=0,'not provided', lower(scv.classification))
+--    left join `clingen-stage.clinvar_curator.clinvar_clinsig_types` cst1 on cst1.code = map1.cv_clinsig_type
+--    left join (select id, name from `clingen-stage.clinvar_curator.clinvar_submitters` cross join unnest(all_names) as name) s on s.name = scv.submitter_name 
+-- ;
