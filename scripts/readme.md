@@ -52,13 +52,13 @@ third, a set of scripts to filter the variants of interest from the aggregated t
 * voi_group_change
 * voi_scv_change
 
-* voi_group_recalc_chg
+* voi_group_change_recalc
 
 * voi_top_group_change
-* voi_top_group_recalc_chg
+* voi_top_group_change_recalc
 
 * voi_summary_change
-* voi_summary_recalc_chg
+* voi_summary_change_recalc
 
 #product the output report tables
 the fourth and final set of scripts creates individual sets of tables for each variation tracker report configuration (by vcep). These final tables are used by the bigquery data connector sheets in the variation report tracker google sheet.
