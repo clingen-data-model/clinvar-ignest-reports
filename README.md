@@ -1,7 +1,7 @@
 # clinvar-google-sheets
 ClinGen generates several google sheet based reports from the ClinVar ingested data that originates from the Broad BigQuery data.
 
-![ClinVar Ingest Service](clinvar ingest diagram.png)
+![ClinVar Ingest Service](./files/clinvar ingest diagram.png)
 
 This repository holds the scripts and instructions to process the ClinVar BQ tables when new ClinVar releases are processed by ClinGen's ClinVar ingestion service.
 
