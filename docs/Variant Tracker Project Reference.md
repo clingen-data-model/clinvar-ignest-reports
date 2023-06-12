@@ -47,3 +47,9 @@ This function will display a dialog box titled "How to use this report" in the a
 None
 ### Returns
 None
+
+
+# Deploying Changes to the Functions and Updating Existing Reports
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Changes to these functions, or the creation of new functions, that are meant to be applied to all Variant Tracker Reports must be done in the master file, [Variation Tracker Project Google Apps Script](https://script.google.com/home/projects/1bIhg7fWREGLvxvuhn_oNXexZnd6vRRkuzA7TgL--67JS0QW5rP6WKwr9/edit). Once all updates are complete, the Google Script must be deployed as a new version of the Variation Tracker Project Google Apps Script. This is done by selecting the blue “Deploy” button in the top right corner of the interface and selecting “New deployment” from the dropdown menu. Select the deployment type as “Library” and add a description to the deployment that includes a version number to ensure the most up-to-date Google Script can be easily selected. Once this is done, select “Deploy” in the bottom right hand corner of the popup window you are working in.
+
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Now each Variant Tracker Report must be individually updated as they are each running on the outdated deployment of the Variation Tracker Project Google Apps Script. To do this, systematically work through each report by selecting “Extensions” followed by “Apps Script” in each report’s Google Sheets toolbar. This will open a new window containing functions that locally execute the functions from the master file. From here, select the library titled, “VariationTrackerProject”. This will open a popup window with the option to select a version of the VariationTrackerProject library. Select the most recent version (highest number) and select “Save”. Once this step is completed for every variant tracker report, all of the sheets will be properly updated.
