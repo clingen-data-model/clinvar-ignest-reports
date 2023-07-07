@@ -1,5 +1,15 @@
+# Variant Tracker Report Maintenance
+## All of the Variant Tracker Reports are housed  here: [Google Folder Containing Existing Reports](https://drive.google.com/drive/folders/10vEGdTMJ5IxajPVwMV2jfRMFJadlXLM4)
+These reports all run on a set of functions contained in the “VariationTrackerProject” library, contained here: [Variation Tracker Project Google Apps Script](https://script.google.com/home/projects/1bIhg7fWREGLvxvuhn_oNXexZnd6vRRkuzA7TgL--67JS0QW5rP6WKwr9/edit). Within each individual report, selecting "Extensions" followed by "Apps Script" will open a new window with the local functions running the operations of the individual Variant Tracker Report. The parent functions in the "VariantTrackerProject" library are called using wrapper functions, executing the master functions locally for each individual Variant Tracker Report.
+
+* When updating any individual Variant Tracker Report, various sheets may have to be manipulated to create the desired change(s). When modifications are complete, all sheets should be hidden except for "home", "alerts", "priorities", and "tracking".
+
+## General Sheets Infrastructure
+* The "alerts by release" and "priorities by release" hidden sheets are data connectors that link to the available ClinVar data in BigQuery. They pull variants in ClinVar with out-of-date/discrepant classifications with another submitter or ClinVar variant records within genes in the VCEP’s scope of work that could be prioritized for curation or used in a variant curation pilot, respectively.
+* The "alert extract" and "priority extract" hidden sheets sort the data from "alerts by release" and "priorities by release". "Alert extract" is sorted by gene symbol, name of the variant, and alert type in ascending order. "Priority extract" is sorted by the pathogenicity conflict type, gene symbol, and name of the variant in ascending order and also includes an extra column listing each variant's ClinVar link.
+* The "alerts" and "priorities" sheets, which remain visible, are the cleaned and sorted versions of the "alert extract" and "priority extract" sheets. Repeated values for the same variants are removed so that only the alert types and current classifications corresponding to each variant are indicated, respectively.
+
 # Functionality of the VariationTrackerProject Library
-[Variation Tracker Project Google Apps Script](https://script.google.com/home/projects/1bIhg7fWREGLvxvuhn_oNXexZnd6vRRkuzA7TgL--67JS0QW5rP6WKwr9/edit)
 
 ## createVarTrackerMenu()
 ### Description
@@ -50,6 +60,19 @@ None
 
 
 # Deploying Changes to the Functions and Updating Existing Reports
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Changes to these functions, or the creation of new functions, that are meant to be applied to all Variant Tracker Reports must be done in the master file, [Variation Tracker Project Google Apps Script](https://script.google.com/home/projects/1bIhg7fWREGLvxvuhn_oNXexZnd6vRRkuzA7TgL--67JS0QW5rP6WKwr9/edit). Once all updates are complete, the Google Script must be deployed as a new version of the Variation Tracker Project Google Apps Script. This is done by selecting the blue “Deploy” button in the top right corner of the interface and selecting “New deployment” from the dropdown menu. Select the deployment type as “Library” and add a description to the deployment that includes a version number to ensure the most up-to-date Google Script can be easily selected. Once this is done, select “Deploy” in the bottom right hand corner of the popup window you are working in.
+Changes to these functions that are meant to be applied to all Variant Tracker Reports must be done in the master file, [Variation Tracker Project Google Apps Script](https://script.google.com/home/projects/1bIhg7fWREGLvxvuhn_oNXexZnd6vRRkuzA7TgL--67JS0QW5rP6WKwr9/edit).
 
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Now each Variant Tracker Report must be individually updated as they are each running on the outdated deployment of the Variation Tracker Project Google Apps Script. To do this, systematically work through each report by selecting “Extensions” followed by “Apps Script” in each report’s Google Sheets toolbar. This will open a new window containing functions that locally execute the functions from the master file. From here, select the library titled, “VariationTrackerProject”. This will open a popup window with the option to select a version of the VariationTrackerProject library. Select the most recent version (highest number) and select “Save”. Once this step is completed for every variant tracker report, all of the sheets will be properly updated.
+1. Once all updates are complete, deploy the Google Script as a new version of the Variation Tracker Project Google Apps Script.
+ * Select the blue “Deploy” button in the top right corner of the interface.
+ * Select “New deployment” from the dropdown menu.
+ * Select the deployment type as “Library” and add a description to the deployment that includes a version number to ensure the most up-to-date Google Script can be easily selected.
+ * Select “Deploy” in the bottom right hand corner of the popup window you are working in.
+
+2. Separately update each Variant Tracker Report (they are currently running on the outdated deployment of the Variation Tracker Project Google Apps Script).
+ * Work through each report by selecting “Extensions” followed by “Apps Script” in each report’s Google Sheets toolbar.
+ * The new window that opens will contain wrapper functions that locally execute the functions from the master file. 
+ * On the left-hand sidebar, select the library titled, “VariationTrackerProject”.
+ * In the popup window, select the most recent version (highest number) of the VariationTrackerProject library.
+ * Select “Save”.
+
+Once this step is completed for every variant tracker report, all of the sheets will be properly updated.
