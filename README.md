@@ -1,4 +1,4 @@
-# clinvar-google-sheets
+# clinvar-ingest-reports
 ClinGen generates several google sheet based reports from the ClinVar ingested data that originates from the Broad BigQuery data.
 
 ![ClinVar Ingest Service](files/clinvar%20ingest%20diagram.png)
