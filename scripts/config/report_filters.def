@@ -1,0 +1,39 @@
+{
+  "autodetect": false,
+  "sourceFormat": "GOOGLE_SHEETS",
+  "sourceUris": [
+    "https://docs.google.com/spreadsheets/d/1bADskBcobHTmmXungY09beWPDEa1nqM-PP__86yGVj0"
+  ],
+  "googleSheetsOptions": {
+    "skipLeadingRows":"1",
+    "range": "'VCEP Tracker Configs'!A:F"
+  },
+  "schema": {
+    "fields": [
+      {
+        "name": "tab_name",
+        "type": "STRING"
+      },
+      {
+        "name": "filter_view",
+        "type": "STRING"
+      },
+      {
+        "name": "condition_column_index",
+        "type": "INTEGER"
+      },
+      {
+        "name": "condition_column_name",
+        "type": "STRING"
+      },
+      {
+        "name": "condition_type",
+        "type": "STRING"
+      },
+      {
+        "name": "condition_value",
+        "type": "STRING"
+      }
+    ]
+  }
+}
