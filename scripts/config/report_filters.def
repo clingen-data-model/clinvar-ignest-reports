@@ -20,15 +20,31 @@
       },
       {
         "name": "condition_column_index",
+        "type": "STRING"
+      },
+      {
+        "name": "sheet_id",
         "type": "INTEGER"
       },
       {
-        "name": "condition_column_name",
-        "type": "STRING"
+        "name": "start_row_index",
+        "type": "INTEGER",
+      },
+      {
+        "name": "start_column_index",
+        "type": "INTEGER"
+      },
+      {
+        "name": "end_column_index",
+        "type": "INTEGER"
       },
       {
         "name": "condition_type",
         "type": "STRING"
+      },
+      {
+        "name": "condition_value_type",
+        "type": "STRING
       },
       {
         "name": "condition_value",
