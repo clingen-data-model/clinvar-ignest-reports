@@ -28,7 +28,7 @@
       },
       {
         "name": "start_row_index",
-        "type": "INTEGER",
+        "type": "INTEGER"
       },
       {
         "name": "start_column_index",
@@ -44,7 +44,7 @@
       },
       {
         "name": "condition_value_type",
-        "type": "STRING
+        "type": "STRING"
       },
       {
         "name": "condition_value",
