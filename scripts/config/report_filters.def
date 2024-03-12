@@ -6,7 +6,7 @@
   ],
   "googleSheetsOptions": {
     "skipLeadingRows":"1",
-    "range": "'VCEP Tracker Configs'!A:K"
+    "range": "'VCEP Tracker Configs'!A:J"
   },
   "schema": {
     "fields": [
